@@ -1,116 +1,109 @@
-import requests
-from bs4 import BeautifulSoup
 import time
 import csv
+import requests
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-QUANTUM_KEYWORDS = ["quantum", "qubit", "quantum computing", "quantum information", "entanglement", "superposition"]
+QUANTUM_KEYWORDS = [
+    "quantum", "qubit", "entanglement", "superposition",
+    "quantum computing", "quantum technology", "quantum research",
+    "quantum funding", "quantum grant", "quantum fellowship"
+]
 
-def bing_search(query, num_results=5):
-    """Fetch search results from Bing"""
+def setup_driver():
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    driver = webdriver.Chrome(options=options)
+    return driver
+
+def bing_search_selenium(query, num_results=10):
+    driver = setup_driver()
     search_url = f"https://www.bing.com/search?q={query.replace(' ', '+')}"
-    response = requests.get(search_url, headers=HEADERS)
+    driver.get(search_url)
+    time.sleep(2)
 
-    if response.status_code != 200:
-        print(f"Failed to retrieve Bing search results. Status Code: {response.status_code}")
-        return []
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    urls = set()
 
-    soup = BeautifulSoup(response.text, 'html.parser')
-    search_results = set()
-
-    for link in soup.find_all('a', href=True):
-        url = link['href']
-        if "http" in url and "bing.com" not in url:
-            search_results.add(url) 
-        if len(search_results) >= num_results:
+    for a in soup.find_all('a', href=True):
+        href = a['href']
+        if href.startswith("http") and "bing.com" not in href and "microsoft.com" not in href:
+            urls.add(href)
+        if len(urls) >= num_results:
             break
 
-    return list(search_results)
+    driver.quit()
+    return list(urls)
 
 def scrape_funding_page(url):
-    """Scrapes a page to check if it contains quantum research grants"""
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
         if response.status_code != 200:
             return None
-
-        text = response.text.lower()
-        if any(keyword in text for keyword in QUANTUM_KEYWORDS):
+        content = response.text.lower()
+        if any(keyword in content for keyword in QUANTUM_KEYWORDS):
             return {"url": url}
-    
     except requests.exceptions.RequestException:
         return None
+    return None
 
 def find_quantum_grants():
-    """Finds quantum research grants using Bing search"""
     search_queries = [
         "quantum computing grants 2025",
-        "quantum research funding opportunities",
-        "apply for quantum technology grants",
-        "government grants for quantum research",
-        "NSF quantum computing grants",
-        "DOE quantum research funding",
-        "DARPA quantum computing funding opportunities",
-        "NIH funding for quantum technology",
-        "NASA quantum computing research grants",
-        "US quantum technology funding",
-        "Google quantum computing research funding",
-        "IBM quantum grants and fellowships",
-        "Microsoft Azure Quantum research funding",
-        "Amazon AWS quantum research grants",
-        "Quantum funding"
+        "quantum technology funding opportunities",
+        "apply for quantum research grants",
+        "government quantum research grants",
+        "NSF quantum computing funding",
+        "DOE quantum funding",
+        "DARPA quantum computing programs",
+        "NIH quantum technology funding",
+        "NASA quantum research programs",
+        "Google quantum fellowship",
+        "IBM quantum research grants",
+        "Microsoft Azure Quantum grants",
+        "Amazon Braket quantum funding"
     ]
 
     all_grants = []
 
     for query in search_queries:
         print(f"Searching Bing for: {query}")
-        results = bing_search(query)
-
-        for url in results:
-            grant_info = scrape_funding_page(url)
-            if grant_info and grant_info not in all_grants:
-                all_grants.append(grant_info)
-
-        time.sleep(2)
+        urls = bing_search_selenium(query)
+        print(f"Found {len(urls)} URLs")
+        for url in urls:
+            print(f"Checking: {url}")
+            result = scrape_funding_page(url)
+            if result and result not in all_grants:
+                all_grants.append(result)
+        time.sleep(1)
 
     return all_grants
 
-def write_grants_to_csv(grants, filename="quantum_grants.csv"):
-    """Write the grants data to a CSV file"""
+def write_to_csv(grants, filename="quantum_grants.csv"):
     with open(filename, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(["URL"]) 
-        for idx, grant in enumerate(grants, start=1):
+        writer.writerow(["URL"])
+        for grant in grants:
             writer.writerow([grant['url']])
+    print(f"Results saved to {filename}")
 
-def write_grants_to_text(grants, filename="quantum_grants.txt"):
-    """Write the grants data to a text file"""
-    with open(filename, mode='w', encoding='utf-8') as file:
-        for idx, grant in enumerate(grants, start=1):
-            file.write(f"URL: {grant['url']}\n\n")
-
-def print_grants(grants, save_to_file=True, file_format="csv"):
-    """Print the structured grant results"""
-    if grants:
-        print("\nQuantum Grants Found:")
-        for idx, grant in enumerate(grants, start=1):
-            print(f"URL: {grant['url']}")
-        
-       
-        if save_to_file:
-            if file_format == "csv":
-                write_grants_to_csv(grants)
-                print(f"\nResults written to 'quantum_grants.csv'.")
-            elif file_format == "txt":
-                write_grants_to_text(grants)
-                print(f"\nResults written to 'quantum_grants.txt'.")
-    else:
+def print_grants(grants):
+    if not grants:
         print("No quantum-related grants found.")
+        return
+
+    print("Quantum Grants Found:")
+    for idx, grant in enumerate(grants, start=1):
+        print(f"{idx}. {grant['url']}")
 
 if __name__ == "__main__":
     grants = find_quantum_grants()
-    print_grants(grants, save_to_file=True, file_format="csv") 
+    print_grants(grants)
+    write_to_csv(grants)
